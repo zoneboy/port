@@ -107,3 +107,27 @@ CREATE TABLE IF NOT EXISTS record_audit (
   changed_at  timestamptz   NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_audit_record ON record_audit (record_id);
+
+-- ─────────────────────────────────────────────────────────────
+-- Advances & deductions ledger. Workers take advances mid-cycle;
+-- net pay on the Payment Summary = gross payout − advances − deductions
+-- + bonuses. `amount` is always positive; the sign comes from `type`.
+-- ─────────────────────────────────────────────────────────────
+DO $$ BEGIN
+  CREATE TYPE adjustment_type AS ENUM ('advance', 'deduction', 'bonus');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE TABLE IF NOT EXISTS worker_adjustments (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  worker_id   uuid             NOT NULL REFERENCES workers(id),
+  date        date             NOT NULL,            -- Africa/Lagos calendar date
+  type        adjustment_type  NOT NULL,
+  amount      numeric(12,2)    NOT NULL CHECK (amount > 0),
+  note        text,
+  created_at  timestamptz      NOT NULL DEFAULT now(),
+  deleted_at  timestamptz                            -- soft delete, matches daily_records
+);
+CREATE INDEX IF NOT EXISTS idx_adj_worker_date
+  ON worker_adjustments (worker_id, date) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_adj_date
+  ON worker_adjustments (date) WHERE deleted_at IS NULL;

@@ -40,6 +40,9 @@ export default handle(async (req) => {
     const b = await req.json().catch(() => ({}));
     if (!isValidDate(b.date)) throw new HttpError(400, 'Valid date is required');
 
+    // Bulk single-date entry: { date, entries: [{ worker_id, pet_kg, cover_kg | bales_produced }] }
+    if (Array.isArray(b.entries)) return bulkUpsert(b.date, b.entries);
+
     const [worker] = await sql`SELECT id, role, is_active FROM workers WHERE id = ${b.worker_id}`;
     if (!worker) throw new HttpError(400, 'Unknown worker');
 
@@ -140,6 +143,56 @@ export default handle(async (req) => {
 
   throw new HttpError(405, 'Method not allowed');
 });
+
+// Upsert one record per worker for a single date. Empty rows are skipped (not
+// zeroed), so an unfilled grid row leaves any existing record untouched. Rates
+// are snapshotted from current settings (same-day entry => today's rate).
+async function bulkUpsert(date, entries) {
+  const [rates] = await sql`SELECT pet_price_per_kg, cover_price_per_kg, bale_price FROM settings WHERE id = 1`;
+
+  // Roles for every referenced worker, in one query.
+  const ids = [...new Set(entries.map((e) => e.worker_id).filter(Boolean))];
+  if (ids.length === 0) return json({ saved: 0, skipped: 0, results: [] });
+  const workers = await sql`SELECT id, role FROM workers WHERE id = ANY(${ids})`;
+  const roleOf = new Map(workers.map((w) => [w.id, w.role]));
+
+  const results = [];
+  let saved = 0, skipped = 0;
+  for (const e of entries) {
+    const role = roleOf.get(e.worker_id);
+    if (!role) { skipped++; continue; }
+
+    let fields;
+    if (role === 'Sorter') {
+      const pet = nonNeg(e.pet_kg, 'PET weight');
+      const cover = nonNeg(e.cover_kg, 'Cover weight');
+      if (pet === 0 && cover === 0) { skipped++; continue; }
+      fields = { pet_kg: pet, cover_kg: cover, bales: null,
+                 pet_rate: rates.pet_price_per_kg, cover_rate: rates.cover_price_per_kg, bale_rate: null };
+    } else {
+      const bales = nonNegInt(e.bales_produced, 'Number of bales');
+      if (bales === 0) { skipped++; continue; }
+      fields = { pet_kg: null, cover_kg: null, bales,
+                 pet_rate: null, cover_rate: null, bale_rate: rates.bale_price };
+    }
+
+    const [row] = await sql`
+      INSERT INTO daily_records
+        (date, worker_id, pet_kg, cover_kg, bales_produced, pet_rate, cover_rate, bale_rate)
+      VALUES (${date}, ${e.worker_id}, ${fields.pet_kg}, ${fields.cover_kg}, ${fields.bales},
+              ${fields.pet_rate}, ${fields.cover_rate}, ${fields.bale_rate})
+      ON CONFLICT (worker_id, date) WHERE deleted_at IS NULL
+      DO UPDATE SET pet_kg = EXCLUDED.pet_kg, cover_kg = EXCLUDED.cover_kg,
+                    bales_produced = EXCLUDED.bales_produced,
+                    pet_rate = EXCLUDED.pet_rate, cover_rate = EXCLUDED.cover_rate,
+                    bale_rate = EXCLUDED.bale_rate, updated_at = now()
+      RETURNING id, payout, (xmax = 0) AS inserted`;
+    await audit(row.id, row.inserted ? 'create' : 'update', { ...fields, date, worker_id: e.worker_id, bulk: true });
+    results.push({ worker_id: e.worker_id, id: row.id, payout: row.payout });
+    saved++;
+  }
+  return json({ saved, skipped, results });
+}
 
 function nonNeg(v, label) {
   const n = v == null || v === '' ? 0 : Number(v);

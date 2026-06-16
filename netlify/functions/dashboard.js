@@ -35,12 +35,24 @@ export default handle(async (req) => {
      GROUP BY w.full_name HAVING COALESCE(SUM(r.bales_produced),0) > 0
      ORDER BY bales DESC LIMIT 3`;
 
-  const [todayT, week, month, sorters, balers] = await Promise.all([
+  // Daily series for the last 30 days. Days with no records are absent here;
+  // the frontend fills them as 0 so dips and gaps show at a glance.
+  const trend = async () => sql`
+    SELECT date::text AS date,
+           COALESCE(SUM(pet_kg),0)::numeric     AS pet_kg,
+           COALESCE(SUM(cover_kg),0)::numeric   AS cover_kg,
+           COALESCE(SUM(bales_produced),0)::int AS bales
+      FROM daily_records
+     WHERE deleted_at IS NULL AND date >= ${last30} AND date <= ${today}
+     GROUP BY date ORDER BY date`;
+
+  const [todayT, week, month, sorters, balers, series] = await Promise.all([
     totals(today, today),
     totals(last7, today),
     totals(last30, today),
     topSorters(last30, today),
     topBalers(last30, today),
+    trend(),
   ]);
 
   return json({
@@ -49,6 +61,7 @@ export default handle(async (req) => {
     month,
     topSorters: sorters,
     topBalers: balers,
+    trend: series,
     asOf: today,
   });
 });

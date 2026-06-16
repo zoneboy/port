@@ -4,6 +4,7 @@ import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Entry from './pages/Entry.jsx';
 import Records from './pages/Records.jsx';
+import Adjustments from './pages/Adjustments.jsx';
 import Workers from './pages/Workers.jsx';
 import Settings from './pages/Settings.jsx';
 import ExportPage from './pages/Export.jsx';
@@ -15,6 +16,7 @@ const NAV = [
   { id: 'dashboard', label: 'Dashboard', ico: '◧' },
   { id: 'entry', label: 'Daily Entry', ico: '✎' },
   { id: 'records', label: 'Records', ico: '▤' },
+  { id: 'adjustments', label: 'Advances', ico: '⇄' },
   { id: 'workers', label: 'Workers', ico: '◎' },
   { id: 'settings', label: 'Pricing', ico: '₦' },
   { id: 'export', label: 'Export', ico: '↧' },
@@ -71,7 +73,7 @@ export default function App() {
     );
   }
 
-  const Page = { dashboard: Dashboard, entry: Entry, records: Records,
+  const Page = { dashboard: Dashboard, entry: Entry, records: Records, adjustments: Adjustments,
     workers: Workers, settings: Settings, export: ExportPage }[page];
 
   return (

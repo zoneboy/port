@@ -35,14 +35,28 @@ export const api = {
     return req(`/records?${p.toString()}`);
   },
   addRecord: (r) => req('/records', { method: 'POST', body: r }),
+  bulkRecords: (date, entries) => req('/records', { method: 'POST', body: { date, entries } }),
   updateRecord: (id, r) => req(`/records?id=${id}`, { method: 'PUT', body: r }),
   deleteRecord: (id) => req(`/records?id=${id}`, { method: 'DELETE' }),
+  // adjustments (advances / deductions / bonuses)
+  listAdjustments: (q = {}) => {
+    const p = new URLSearchParams(Object.entries(q).filter(([, v]) => v));
+    return req(`/adjustments?${p.toString()}`);
+  },
+  addAdjustment: (a) => req('/adjustments', { method: 'POST', body: a }),
+  deleteAdjustment: (id) => req(`/adjustments?id=${id}`, { method: 'DELETE' }),
   // dashboard
   dashboard: () => req('/dashboard'),
+  completeness: (date) => req(`/completeness${date ? `?date=${date}` : ''}`),
   // export -> returns a Response for blob download
   exportBlob: (q) => {
     const p = new URLSearchParams(Object.entries(q).filter(([, v]) => v));
     return req(`/export?${p.toString()}`, { raw: true });
+  },
+  // payslip PDF -> returns a Response for blob download
+  payslipBlob: (q) => {
+    const p = new URLSearchParams(Object.entries(q).filter(([, v]) => v));
+    return req(`/payslip?${p.toString()}`, { raw: true });
   },
 };
 
