@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { api, naira, intf } from '../api.js';
 import { useToast } from '../App.jsx';
 
@@ -15,6 +15,19 @@ export default function Records() {
 
   useEffect(() => { api.listWorkers(false).then(setWorkers).catch(() => {}); }, []);
   useEffect(() => { load(); }, [load]);
+
+  // Paginate one day at a time. Rows arrive newest-first, so index 0 is the
+  // most recent day; "Older" advances the index, "Newer" steps back.
+  const [dayIndex, setDayIndex] = useState(0);
+  const days = useMemo(() => [...new Set(rows.map((r) => String(r.date).slice(0, 10)))], [rows]);
+  useEffect(() => { setDayIndex(0); }, [filters]);               // new filter -> jump to newest day
+  useEffect(() => { setDayIndex((i) => Math.min(i, Math.max(0, days.length - 1))); }, [days.length]); // clamp after deletes
+  const currentDay = days[dayIndex];
+  const dayRows = useMemo(
+    () => rows.filter((r) => String(r.date).slice(0, 10) === currentDay),
+    [rows, currentDay],
+  );
+  const dayTotal = useMemo(() => dayRows.reduce((s, r) => s + (Number(r.payout) || 0), 0), [dayRows]);
 
   const del = async (id) => {
     if (!confirm('Delete this record? It will be removed from reports but kept in the audit log.')) return;
@@ -52,6 +65,19 @@ export default function Records() {
         <button className="btn ghost" onClick={() => setFilters({ from: '', to: '', worker_id: '', material: '' })}>Reset</button>
       </div>
 
+      {days.length > 0 && (
+        <div className="pager">
+          <button className="btn sm ghost" disabled={dayIndex >= days.length - 1} onClick={() => setDayIndex((i) => i + 1)}>← Older</button>
+          <div className="pager-info">
+            <strong className="mono">{currentDay}</strong>
+            <span className="muted">
+              Day {dayIndex + 1} of {days.length} · {dayRows.length} record{dayRows.length === 1 ? '' : 's'} · {naira(dayTotal)}
+            </span>
+          </div>
+          <button className="btn sm ghost" disabled={dayIndex <= 0} onClick={() => setDayIndex((i) => i - 1)}>Newer →</button>
+        </div>
+      )}
+
       <div className="table-wrap">
         <table>
           <thead><tr>
@@ -60,7 +86,7 @@ export default function Records() {
           </tr></thead>
           <tbody>
             {rows.length === 0 && <tr><td colSpan={6}><div className="empty">No records match these filters.</div></td></tr>}
-            {rows.map((r) => (
+            {dayRows.map((r) => (
               <tr key={r.id}>
                 <td className="mono">{String(r.date).slice(0, 10)}</td>
                 <td>{r.full_name}</td>

@@ -22,13 +22,15 @@ const NAV = [
   { id: 'export', label: 'Export', ico: '↧' },
 ];
 
-const IDLE_MS = 20 * 60 * 1000; // auto-logout after 20 min idle
+const IDLE_MS = 6 * 60 * 60 * 1000;    // auto-logout after 6 hours idle
+const KEEPALIVE_MS = 5 * 60 * 1000;    // while active, slide the session at most this often
 
 export default function App() {
   const [auth, setAuth] = useState({ loading: true, email: null });
   const [page, setPage] = useState('dashboard');
   const [toast, setToast] = useState(null);
   const timer = useRef(null);
+  const lastPing = useRef(0);
 
   const notify = useCallback((message, kind = 'ok') => {
     setToast({ message, kind });
@@ -47,17 +49,26 @@ export default function App() {
       .catch(() => setAuth({ loading: false, email: null }));
   }, []);
 
-  // idle auto-logout
+  // idle auto-logout + sliding-session keepalive
   useEffect(() => {
     if (!auth.email) return;
-    const reset = () => {
+    const onActivity = () => {
+      // Restart the 20-min idle countdown.
       clearTimeout(timer.current);
       timer.current = setTimeout(() => { notify('Signed out due to inactivity', 'err'); signOut(); }, IDLE_MS);
+      // Throttled keepalive: re-issue the session cookie so long working
+      // sessions (e.g. typing in the bulk grid) never hit the server's hard
+      // token expiry. Typing fires keydown, so this fires during data entry too.
+      const now = Date.now();
+      if (now - lastPing.current > KEEPALIVE_MS) {
+        lastPing.current = now;
+        api.session().catch(() => {});
+      }
     };
     const events = ['mousemove', 'keydown', 'click', 'scroll'];
-    events.forEach((e) => window.addEventListener(e, reset));
-    reset();
-    return () => { events.forEach((e) => window.removeEventListener(e, reset)); clearTimeout(timer.current); };
+    events.forEach((e) => window.addEventListener(e, onActivity));
+    onActivity();
+    return () => { events.forEach((e) => window.removeEventListener(e, onActivity)); clearTimeout(timer.current); };
   }, [auth.email, notify, signOut]);
 
   if (auth.loading) {

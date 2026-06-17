@@ -3,7 +3,7 @@ import { parse, serialize } from 'cookie';
 import { HttpError } from './respond.js';
 
 const COOKIE = 'zrms_session';
-const MAX_AGE = 30 * 60; // 30 minutes
+const MAX_AGE = 6 * 60 * 60; // 6 hours
 
 export function signSession(email) {
   return jwt.sign({ sub: email, role: 'admin' }, process.env.JWT_SECRET, {
