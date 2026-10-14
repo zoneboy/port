@@ -20,7 +20,7 @@ export default handle(async (req) => {
       SELECT r.id, r.date, r.worker_id, w.full_name, w.role,
              r.pet_kg, r.cover_kg, r.bales_produced,
              r.pet_clear_kg, r.pet_oily_kg, r.pet_brown_kg, r.pet_green_kg,
-             r.pet_viju_kg, r.pet_freshyo_kg, r.pet_blue_kg,
+             r.pet_viju_kg, r.pet_freshyo_kg, r.pet_blue_kg, r.pet_black_kg,
              r.pet_rate, r.cover_rate, r.bale_rate, r.payout
         FROM daily_records r
         JOIN workers w ON w.id = r.worker_id
@@ -74,11 +74,11 @@ export default handle(async (req) => {
       [row] = await sql`
         INSERT INTO daily_records
           (date, worker_id, pet_kg, cover_kg, bales_produced, pet_rate, cover_rate, bale_rate,
-           pet_clear_kg, pet_oily_kg, pet_brown_kg, pet_green_kg, pet_viju_kg, pet_freshyo_kg, pet_blue_kg)
+           pet_clear_kg, pet_oily_kg, pet_brown_kg, pet_green_kg, pet_viju_kg, pet_freshyo_kg, pet_blue_kg, pet_black_kg)
         VALUES (${b.date}, ${worker.id}, ${fields.pet_kg}, ${fields.cover_kg}, ${fields.bales},
                 ${fields.pet_rate}, ${fields.cover_rate}, ${fields.bale_rate},
                 ${fields.pet_clear_kg}, ${fields.pet_oily_kg}, ${fields.pet_brown_kg}, ${fields.pet_green_kg},
-                ${fields.pet_viju_kg}, ${fields.pet_freshyo_kg}, ${fields.pet_blue_kg})
+                ${fields.pet_viju_kg}, ${fields.pet_freshyo_kg}, ${fields.pet_blue_kg}, ${fields.pet_black_kg})
         RETURNING id, payout`;
     } catch (e) {
       if (String(e.message).includes('uniq_worker_day_live')) {
@@ -128,7 +128,7 @@ export default handle(async (req) => {
              pet_clear_kg = ${next.pet_clear_kg}, pet_oily_kg = ${next.pet_oily_kg},
              pet_brown_kg = ${next.pet_brown_kg}, pet_green_kg = ${next.pet_green_kg},
              pet_viju_kg = ${next.pet_viju_kg}, pet_freshyo_kg = ${next.pet_freshyo_kg},
-             pet_blue_kg = ${next.pet_blue_kg},
+             pet_blue_kg = ${next.pet_blue_kg}, pet_black_kg = ${next.pet_black_kg},
              updated_at = now()
        WHERE id = ${id}
        RETURNING id, payout`;
@@ -137,7 +137,7 @@ export default handle(async (req) => {
         pet_kg: rec.pet_kg, cover_kg: rec.cover_kg, bales_produced: rec.bales_produced,
         pet_clear_kg: rec.pet_clear_kg, pet_oily_kg: rec.pet_oily_kg, pet_brown_kg: rec.pet_brown_kg,
         pet_green_kg: rec.pet_green_kg, pet_viju_kg: rec.pet_viju_kg, pet_freshyo_kg: rec.pet_freshyo_kg,
-        pet_blue_kg: rec.pet_blue_kg,
+        pet_blue_kg: rec.pet_blue_kg, pet_black_kg: rec.pet_black_kg,
       },
       after: next,
       applyCurrentRate: !!b.applyCurrentRate,
@@ -194,11 +194,11 @@ async function bulkUpsert(date, entries) {
     const [row] = await sql`
       INSERT INTO daily_records
         (date, worker_id, pet_kg, cover_kg, bales_produced, pet_rate, cover_rate, bale_rate,
-         pet_clear_kg, pet_oily_kg, pet_brown_kg, pet_green_kg, pet_viju_kg, pet_freshyo_kg, pet_blue_kg)
+         pet_clear_kg, pet_oily_kg, pet_brown_kg, pet_green_kg, pet_viju_kg, pet_freshyo_kg, pet_blue_kg, pet_black_kg)
       VALUES (${date}, ${e.worker_id}, ${fields.pet_kg}, ${fields.cover_kg}, ${fields.bales},
               ${fields.pet_rate}, ${fields.cover_rate}, ${fields.bale_rate},
               ${fields.pet_clear_kg}, ${fields.pet_oily_kg}, ${fields.pet_brown_kg}, ${fields.pet_green_kg},
-              ${fields.pet_viju_kg}, ${fields.pet_freshyo_kg}, ${fields.pet_blue_kg})
+              ${fields.pet_viju_kg}, ${fields.pet_freshyo_kg}, ${fields.pet_blue_kg}, ${fields.pet_black_kg})
       ON CONFLICT (worker_id, date) WHERE deleted_at IS NULL
       DO UPDATE SET pet_kg = EXCLUDED.pet_kg, cover_kg = EXCLUDED.cover_kg,
                     bales_produced = EXCLUDED.bales_produced,
@@ -207,7 +207,8 @@ async function bulkUpsert(date, entries) {
                     pet_clear_kg = EXCLUDED.pet_clear_kg, pet_oily_kg = EXCLUDED.pet_oily_kg,
                     pet_brown_kg = EXCLUDED.pet_brown_kg, pet_green_kg = EXCLUDED.pet_green_kg,
                     pet_viju_kg = EXCLUDED.pet_viju_kg, pet_freshyo_kg = EXCLUDED.pet_freshyo_kg,
-                    pet_blue_kg = EXCLUDED.pet_blue_kg, updated_at = now()
+                    pet_blue_kg = EXCLUDED.pet_blue_kg,
+                    pet_black_kg = EXCLUDED.pet_black_kg, updated_at = now()
       RETURNING id, payout, (xmax = 0) AS inserted`;
     await audit(row.id, row.inserted ? 'create' : 'update', { ...fields, date, worker_id: e.worker_id, bulk: true });
     results.push({ worker_id: e.worker_id, id: row.id, payout: row.payout });

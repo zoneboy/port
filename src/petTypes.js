@@ -8,6 +8,7 @@ export const PET_TYPES = [
   { col: 'pet_viju_kg',    label: 'Viju' },
   { col: 'pet_freshyo_kg', label: 'Freshyo' },
   { col: 'pet_blue_kg',    label: 'Blue' },
+  { col: 'pet_black_kg',   label: 'Black' },
 ];
 
 export const emptyPet = () => Object.fromEntries(PET_TYPES.map((t) => [t.col, '']));
