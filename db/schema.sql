@@ -100,7 +100,8 @@ ALTER TABLE daily_records
   ADD COLUMN IF NOT EXISTS pet_green_kg   numeric(10,2),
   ADD COLUMN IF NOT EXISTS pet_viju_kg    numeric(10,2),
   ADD COLUMN IF NOT EXISTS pet_freshyo_kg numeric(10,2),
-  ADD COLUMN IF NOT EXISTS pet_blue_kg    numeric(10,2);
+  ADD COLUMN IF NOT EXISTS pet_blue_kg    numeric(10,2),
+  ADD COLUMN IF NOT EXISTS pet_black_kg   numeric(10,2);
 
 CREATE INDEX IF NOT EXISTS idx_records_date
   ON daily_records (date) WHERE deleted_at IS NULL;
