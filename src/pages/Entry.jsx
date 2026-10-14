@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { api, naira } from '../api.js';
 import { useToast } from '../App.jsx';
+import { PET_TYPES, emptyPet, petTotal, petFromRecord } from '../petTypes.js';
 
 function todayStr() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Lagos' }).format(new Date());
@@ -54,28 +55,29 @@ export default function Entry({ go }) {
 function SingleForm({ tab, pool, rates, date, setDate, go }) {
   const notify = useToast();
   const [workerId, setWorkerId] = useState('');
-  const [pet, setPet] = useState('');
+  const [pet, setPet] = useState(emptyPet);
   const [cover, setCover] = useState('');
   const [bales, setBales] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const reset = () => { setWorkerId(''); setPet(''); setCover(''); setBales(''); };
+  const reset = () => { setWorkerId(''); setPet(emptyPet()); setCover(''); setBales(''); };
   useEffect(reset, [tab]);
 
+  const petKg = petTotal(pet);
   const preview = useMemo(() => {
     if (tab === 'Sorter') {
-      return (Number(pet) || 0) * Number(rates.pet_price_per_kg) +
+      return petKg * Number(rates.pet_price_per_kg) +
              (Number(cover) || 0) * Number(rates.cover_price_per_kg);
     }
     return (Number(bales) || 0) * Number(rates.bale_price);
-  }, [tab, pet, cover, bales, rates]);
+  }, [tab, petKg, cover, bales, rates]);
 
   const save = async () => {
     if (!workerId) return notify('Select a worker', 'err');
     setBusy(true);
     try {
       const body = tab === 'Sorter'
-        ? { date, worker_id: workerId, pet_kg: pet || 0, cover_kg: cover || 0 }
+        ? { date, worker_id: workerId, ...pet, cover_kg: cover || 0 }
         : { date, worker_id: workerId, bales_produced: bales || 0 };
       const r = await api.addRecord(body);
       notify(`Saved — payout ${naira(r.payout)}`);
@@ -104,16 +106,26 @@ function SingleForm({ tab, pool, rates, date, setDate, go }) {
       </div>
 
       {tab === 'Sorter' ? (
-        <div className="row">
-          <label className="field">
-            <span>PET weight (kg)</span>
-            <input type="number" min="0" step="0.01" value={pet} onChange={(e) => setPet(e.target.value)} placeholder="0.00" />
-          </label>
+        <>
+          <p className="eyebrow" style={{ margin: '4px 0 8px' }}>PET weight (kg)</p>
+          <div className="pet-grid">
+            {PET_TYPES.map((t) => (
+              <label className="field" key={t.col}>
+                <span>{t.label}</span>
+                <input type="number" min="0" step="0.01" value={pet[t.col]} placeholder="0.00"
+                  onChange={(e) => setPet((p) => ({ ...p, [t.col]: e.target.value }))} />
+              </label>
+            ))}
+            <div className="field pet-total">
+              <span>Total PET</span>
+              <strong className="mono">{petKg.toFixed(2)} kg</strong>
+            </div>
+          </div>
           <label className="field">
             <span>Cover weight (kg)</span>
             <input type="number" min="0" step="0.01" value={cover} onChange={(e) => setCover(e.target.value)} placeholder="0.00" />
           </label>
-        </div>
+        </>
       ) : (
         <label className="field">
           <span>Number of bales produced</span>
@@ -145,7 +157,7 @@ function SingleForm({ tab, pool, rates, date, setDate, go }) {
 // save in a single batch. Prefilled from existing records so it also edits.
 function BulkGrid({ tab, pool, rates, date, setDate, go }) {
   const notify = useToast();
-  const [grid, setGrid] = useState({}); // worker_id -> { pet, cover, bales }
+  const [grid, setGrid] = useState({}); // worker_id -> { pet_*_kg..., cover, bales }
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -157,7 +169,7 @@ function BulkGrid({ tab, pool, rates, date, setDate, go }) {
         const m = {};
         for (const r of rows) {
           m[r.worker_id] = {
-            pet: r.pet_kg != null ? String(r.pet_kg) : '',
+            ...petFromRecord(r),
             cover: r.cover_kg != null ? String(r.cover_kg) : '',
             bales: r.bales_produced != null ? String(r.bales_produced) : '',
           };
@@ -176,7 +188,7 @@ function BulkGrid({ tab, pool, rates, date, setDate, go }) {
   const rowPay = (id) => {
     const c = grid[id] || {};
     if (tab === 'Sorter') {
-      return (Number(c.pet) || 0) * Number(rates.pet_price_per_kg) +
+      return petTotal(c) * Number(rates.pet_price_per_kg) +
              (Number(c.cover) || 0) * Number(rates.cover_price_per_kg);
     }
     return (Number(c.bales) || 0) * Number(rates.bale_price);
@@ -189,7 +201,10 @@ function BulkGrid({ tab, pool, rates, date, setDate, go }) {
     for (const w of pool) {
       const c = grid[w.id] || {};
       if (tab === 'Sorter') {
-        if (Number(c.pet) > 0 || Number(c.cover) > 0) entries.push({ worker_id: w.id, pet_kg: c.pet || 0, cover_kg: c.cover || 0 });
+        if (petTotal(c) > 0 || Number(c.cover) > 0) {
+          const pet = Object.fromEntries(PET_TYPES.map((t) => [t.col, c[t.col] || 0]));
+          entries.push({ worker_id: w.id, ...pet, cover_kg: c.cover || 0 });
+        }
       } else if (Number(c.bales) > 0) {
         entries.push({ worker_id: w.id, bales_produced: c.bales || 0 });
       }
@@ -228,7 +243,11 @@ function BulkGrid({ tab, pool, rates, date, setDate, go }) {
               <thead><tr>
                 <th>{tab}</th>
                 {tab === 'Sorter'
-                  ? <><th style={{ width: 160 }}>PET (kg)</th><th style={{ width: 160 }}>Cover (kg)</th></>
+                  ? <>
+                      {PET_TYPES.map((t) => <th key={t.col} style={{ minWidth: 90 }}>{t.label}</th>)}
+                      <th className="r">Total PET</th>
+                      <th style={{ minWidth: 90 }}>Cover (kg)</th>
+                    </>
                   : <th style={{ width: 180 }}>Bales</th>}
                 <th className="r">Payout</th>
               </tr></thead>
@@ -240,8 +259,11 @@ function BulkGrid({ tab, pool, rates, date, setDate, go }) {
                       <td>{w.full_name}</td>
                       {tab === 'Sorter' ? (
                         <>
-                          <td><input type="number" min="0" step="0.01" value={c.pet || ''} placeholder="0.00"
-                            onChange={(e) => setCell(w.id, 'pet', e.target.value)} /></td>
+                          {PET_TYPES.map((t) => (
+                            <td key={t.col}><input type="number" min="0" step="0.01" value={c[t.col] || ''} placeholder="0.00"
+                              onChange={(e) => setCell(w.id, t.col, e.target.value)} /></td>
+                          ))}
+                          <td className="r mono"><strong>{petTotal(c).toFixed(2)}</strong></td>
                           <td><input type="number" min="0" step="0.01" value={c.cover || ''} placeholder="0.00"
                             onChange={(e) => setCell(w.id, 'cover', e.target.value)} /></td>
                         </>

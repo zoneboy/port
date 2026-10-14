@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { api, naira, intf } from '../api.js';
 import { useToast } from '../App.jsx';
+import { PET_TYPES, petTotal, petFromRecord } from '../petTypes.js';
 
 export default function Records() {
   const notify = useToast();
@@ -38,7 +39,10 @@ export default function Records() {
   const fmtQty = (r) => {
     if (r.role === 'Baler') return `${intf(r.bales_produced)} bales`;
     const parts = [];
-    if (Number(r.pet_kg)) parts.push(`${r.pet_kg} kg PET`);
+    if (Number(r.pet_kg)) {
+      const types = PET_TYPES.filter((t) => Number(r[t.col])).map((t) => `${t.label} ${r[t.col]}`);
+      parts.push(`${r.pet_kg} kg PET${types.length ? ` (${types.join(', ')})` : ''}`);
+    }
     if (Number(r.cover_kg)) parts.push(`${r.cover_kg} kg cover`);
     return parts.join(' · ') || '—';
   };
@@ -110,7 +114,7 @@ export default function Records() {
 
 function EditModal({ rec, onClose, onSaved }) {
   const notify = useToast();
-  const [pet, setPet] = useState(rec.pet_kg ?? '');
+  const [pet, setPet] = useState(() => petFromRecord(rec));
   const [cover, setCover] = useState(rec.cover_kg ?? '');
   const [bales, setBales] = useState(rec.bales_produced ?? '');
   const [applyCurrentRate, setApply] = useState(false);
@@ -121,7 +125,7 @@ function EditModal({ rec, onClose, onSaved }) {
     try {
       const body = rec.role === 'Baler'
         ? { bales_produced: bales || 0, applyCurrentRate }
-        : { pet_kg: pet || 0, cover_kg: cover || 0, applyCurrentRate };
+        : { ...pet, cover_kg: cover || 0, applyCurrentRate };
       const r = await api.updateRecord(rec.id, body);
       notify(`Updated — payout ${naira(r.payout)}`);
       onSaved();
@@ -138,12 +142,21 @@ function EditModal({ rec, onClose, onSaved }) {
           <label className="field"><span>Number of bales</span>
             <input type="number" min="0" step="1" value={bales} onChange={(e) => setBales(e.target.value)} /></label>
         ) : (
-          <div className="row">
-            <label className="field"><span>PET (kg)</span>
-              <input type="number" min="0" step="0.01" value={pet} onChange={(e) => setPet(e.target.value)} /></label>
+          <>
+            <div className="pet-grid">
+              {PET_TYPES.map((t) => (
+                <label className="field" key={t.col}><span>{t.label} (kg)</span>
+                  <input type="number" min="0" step="0.01" value={pet[t.col]}
+                    onChange={(e) => setPet((p) => ({ ...p, [t.col]: e.target.value }))} /></label>
+              ))}
+              <div className="field pet-total">
+                <span>Total PET</span>
+                <strong className="mono">{petTotal(pet).toFixed(2)} kg</strong>
+              </div>
+            </div>
             <label className="field"><span>Cover (kg)</span>
               <input type="number" min="0" step="0.01" value={cover} onChange={(e) => setCover(e.target.value)} /></label>
-          </div>
+          </>
         )}
         <div className="checkrow">
           <input id="acr" type="checkbox" checked={applyCurrentRate} onChange={(e) => setApply(e.target.checked)} />

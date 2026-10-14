@@ -91,6 +91,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS uniq_worker_day_live
   ON daily_records (worker_id, date)
   WHERE deleted_at IS NULL;
 
+-- PET breakdown by type (sorters only). pet_kg holds their sum and is what
+-- gets paid; these are NULL on records entered before the breakdown existed.
+ALTER TABLE daily_records
+  ADD COLUMN IF NOT EXISTS pet_clear_kg   numeric(10,2),
+  ADD COLUMN IF NOT EXISTS pet_oily_kg    numeric(10,2),
+  ADD COLUMN IF NOT EXISTS pet_brown_kg   numeric(10,2),
+  ADD COLUMN IF NOT EXISTS pet_green_kg   numeric(10,2),
+  ADD COLUMN IF NOT EXISTS pet_viju_kg    numeric(10,2),
+  ADD COLUMN IF NOT EXISTS pet_freshyo_kg numeric(10,2),
+  ADD COLUMN IF NOT EXISTS pet_blue_kg    numeric(10,2);
+
 CREATE INDEX IF NOT EXISTS idx_records_date
   ON daily_records (date) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_records_worker_date

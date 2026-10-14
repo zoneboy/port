@@ -107,6 +107,15 @@ input:focus, select:focus { outline: none; border-color: var(--brass); box-shado
 .row { display: flex; gap: 14px; flex-wrap: wrap; }
 .row > * { flex: 1; min-width: 160px; }
 
+/* PET breakdown on the sorter entry form: one input per type plus the total */
+.pet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0 14px; }
+.pet-total { display: flex; flex-direction: column; margin-bottom: 16px; }
+.pet-total span { font-size: 13px; font-weight: 600; color: var(--forest-2); margin-bottom: 6px; }
+.pet-total strong {
+  padding: 11px 13px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--paper); color: var(--pet); font-size: 14.5px;
+}
+
 .btn {
   all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
   background: var(--forest); color: var(--cream); padding: 11px 18px; border-radius: 10px;
