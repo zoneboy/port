@@ -2,6 +2,7 @@ import { handle, json, HttpError } from './_lib/respond.js';
 import { requireAuth } from './_lib/auth.js';
 import { sql } from './_lib/db.js';
 import { isValidDate } from './_lib/dates.js';
+import { readPet, NO_PET } from './_lib/pet.js';
 
 export default handle(async (req) => {
   requireAuth(req);
@@ -18,6 +19,8 @@ export default handle(async (req) => {
     const rows = await sql`
       SELECT r.id, r.date, r.worker_id, w.full_name, w.role,
              r.pet_kg, r.cover_kg, r.bales_produced,
+             r.pet_clear_kg, r.pet_oily_kg, r.pet_brown_kg, r.pet_green_kg,
+             r.pet_viju_kg, r.pet_freshyo_kg, r.pet_blue_kg,
              r.pet_rate, r.cover_rate, r.bale_rate, r.payout
         FROM daily_records r
         JOIN workers w ON w.id = r.worker_id
@@ -40,7 +43,7 @@ export default handle(async (req) => {
     const b = await req.json().catch(() => ({}));
     if (!isValidDate(b.date)) throw new HttpError(400, 'Valid date is required');
 
-    // Bulk single-date entry: { date, entries: [{ worker_id, pet_kg, cover_kg | bales_produced }] }
+    // Bulk single-date entry: { date, entries: [{ worker_id, pet_*_kg..., cover_kg | bales_produced }] }
     if (Array.isArray(b.entries)) return bulkUpsert(b.date, b.entries);
 
     const [worker] = await sql`SELECT id, role, is_active FROM workers WHERE id = ${b.worker_id}`;
@@ -50,18 +53,18 @@ export default handle(async (req) => {
 
     let fields;
     if (worker.role === 'Sorter') {
-      const pet = nonNeg(b.pet_kg, 'PET weight');
+      const pet = readPet(b);
       const cover = nonNeg(b.cover_kg, 'Cover weight');
-      if (pet === 0 && cover === 0) throw new HttpError(400, 'Enter at least one of PET or Cover weight');
+      if (pet.total === 0 && cover === 0) throw new HttpError(400, 'Enter at least one of PET or Cover weight');
       fields = {
-        pet_kg: pet, cover_kg: cover, bales: null,
+        pet_kg: pet.total, ...pet.breakdown, cover_kg: cover, bales: null,
         pet_rate: rates.pet_price_per_kg, cover_rate: rates.cover_price_per_kg, bale_rate: null,
       };
     } else {
       const bales = nonNegInt(b.bales_produced, 'Number of bales');
       if (bales === 0) throw new HttpError(400, 'Enter the number of bales');
       fields = {
-        pet_kg: null, cover_kg: null, bales,
+        pet_kg: null, ...NO_PET, cover_kg: null, bales,
         pet_rate: null, cover_rate: null, bale_rate: rates.bale_price,
       };
     }
@@ -70,9 +73,12 @@ export default handle(async (req) => {
     try {
       [row] = await sql`
         INSERT INTO daily_records
-          (date, worker_id, pet_kg, cover_kg, bales_produced, pet_rate, cover_rate, bale_rate)
+          (date, worker_id, pet_kg, cover_kg, bales_produced, pet_rate, cover_rate, bale_rate,
+           pet_clear_kg, pet_oily_kg, pet_brown_kg, pet_green_kg, pet_viju_kg, pet_freshyo_kg, pet_blue_kg)
         VALUES (${b.date}, ${worker.id}, ${fields.pet_kg}, ${fields.cover_kg}, ${fields.bales},
-                ${fields.pet_rate}, ${fields.cover_rate}, ${fields.bale_rate})
+                ${fields.pet_rate}, ${fields.cover_rate}, ${fields.bale_rate},
+                ${fields.pet_clear_kg}, ${fields.pet_oily_kg}, ${fields.pet_brown_kg}, ${fields.pet_green_kg},
+                ${fields.pet_viju_kg}, ${fields.pet_freshyo_kg}, ${fields.pet_blue_kg})
         RETURNING id, payout`;
     } catch (e) {
       if (String(e.message).includes('uniq_worker_day_live')) {
@@ -103,15 +109,15 @@ export default handle(async (req) => {
 
     let next;
     if (rec.role === 'Sorter') {
-      const pet = nonNeg(b.pet_kg, 'PET weight');
+      const pet = readPet(b);
       const cover = nonNeg(b.cover_kg, 'Cover weight');
-      if (pet === 0 && cover === 0) throw new HttpError(400, 'Enter at least one of PET or Cover weight');
-      next = { pet_kg: pet, cover_kg: cover, bales: null,
+      if (pet.total === 0 && cover === 0) throw new HttpError(400, 'Enter at least one of PET or Cover weight');
+      next = { pet_kg: pet.total, ...pet.breakdown, cover_kg: cover, bales: null,
                pet_rate: rates.pet, cover_rate: rates.cover, bale_rate: null };
     } else {
       const bales = nonNegInt(b.bales_produced, 'Number of bales');
       if (bales === 0) throw new HttpError(400, 'Enter the number of bales');
-      next = { pet_kg: null, cover_kg: null, bales,
+      next = { pet_kg: null, ...NO_PET, cover_kg: null, bales,
                pet_rate: null, cover_rate: null, bale_rate: rates.bale };
     }
 
@@ -119,11 +125,20 @@ export default handle(async (req) => {
       UPDATE daily_records
          SET pet_kg = ${next.pet_kg}, cover_kg = ${next.cover_kg}, bales_produced = ${next.bales},
              pet_rate = ${next.pet_rate}, cover_rate = ${next.cover_rate}, bale_rate = ${next.bale_rate},
+             pet_clear_kg = ${next.pet_clear_kg}, pet_oily_kg = ${next.pet_oily_kg},
+             pet_brown_kg = ${next.pet_brown_kg}, pet_green_kg = ${next.pet_green_kg},
+             pet_viju_kg = ${next.pet_viju_kg}, pet_freshyo_kg = ${next.pet_freshyo_kg},
+             pet_blue_kg = ${next.pet_blue_kg},
              updated_at = now()
        WHERE id = ${id}
        RETURNING id, payout`;
     await audit(id, 'update', {
-      before: { pet_kg: rec.pet_kg, cover_kg: rec.cover_kg, bales_produced: rec.bales_produced },
+      before: {
+        pet_kg: rec.pet_kg, cover_kg: rec.cover_kg, bales_produced: rec.bales_produced,
+        pet_clear_kg: rec.pet_clear_kg, pet_oily_kg: rec.pet_oily_kg, pet_brown_kg: rec.pet_brown_kg,
+        pet_green_kg: rec.pet_green_kg, pet_viju_kg: rec.pet_viju_kg, pet_freshyo_kg: rec.pet_freshyo_kg,
+        pet_blue_kg: rec.pet_blue_kg,
+      },
       after: next,
       applyCurrentRate: !!b.applyCurrentRate,
     });
@@ -164,28 +179,35 @@ async function bulkUpsert(date, entries) {
 
     let fields;
     if (role === 'Sorter') {
-      const pet = nonNeg(e.pet_kg, 'PET weight');
+      const pet = readPet(e);
       const cover = nonNeg(e.cover_kg, 'Cover weight');
-      if (pet === 0 && cover === 0) { skipped++; continue; }
-      fields = { pet_kg: pet, cover_kg: cover, bales: null,
+      if (pet.total === 0 && cover === 0) { skipped++; continue; }
+      fields = { pet_kg: pet.total, ...pet.breakdown, cover_kg: cover, bales: null,
                  pet_rate: rates.pet_price_per_kg, cover_rate: rates.cover_price_per_kg, bale_rate: null };
     } else {
       const bales = nonNegInt(e.bales_produced, 'Number of bales');
       if (bales === 0) { skipped++; continue; }
-      fields = { pet_kg: null, cover_kg: null, bales,
+      fields = { pet_kg: null, ...NO_PET, cover_kg: null, bales,
                  pet_rate: null, cover_rate: null, bale_rate: rates.bale_price };
     }
 
     const [row] = await sql`
       INSERT INTO daily_records
-        (date, worker_id, pet_kg, cover_kg, bales_produced, pet_rate, cover_rate, bale_rate)
+        (date, worker_id, pet_kg, cover_kg, bales_produced, pet_rate, cover_rate, bale_rate,
+         pet_clear_kg, pet_oily_kg, pet_brown_kg, pet_green_kg, pet_viju_kg, pet_freshyo_kg, pet_blue_kg)
       VALUES (${date}, ${e.worker_id}, ${fields.pet_kg}, ${fields.cover_kg}, ${fields.bales},
-              ${fields.pet_rate}, ${fields.cover_rate}, ${fields.bale_rate})
+              ${fields.pet_rate}, ${fields.cover_rate}, ${fields.bale_rate},
+              ${fields.pet_clear_kg}, ${fields.pet_oily_kg}, ${fields.pet_brown_kg}, ${fields.pet_green_kg},
+              ${fields.pet_viju_kg}, ${fields.pet_freshyo_kg}, ${fields.pet_blue_kg})
       ON CONFLICT (worker_id, date) WHERE deleted_at IS NULL
       DO UPDATE SET pet_kg = EXCLUDED.pet_kg, cover_kg = EXCLUDED.cover_kg,
                     bales_produced = EXCLUDED.bales_produced,
                     pet_rate = EXCLUDED.pet_rate, cover_rate = EXCLUDED.cover_rate,
-                    bale_rate = EXCLUDED.bale_rate, updated_at = now()
+                    bale_rate = EXCLUDED.bale_rate,
+                    pet_clear_kg = EXCLUDED.pet_clear_kg, pet_oily_kg = EXCLUDED.pet_oily_kg,
+                    pet_brown_kg = EXCLUDED.pet_brown_kg, pet_green_kg = EXCLUDED.pet_green_kg,
+                    pet_viju_kg = EXCLUDED.pet_viju_kg, pet_freshyo_kg = EXCLUDED.pet_freshyo_kg,
+                    pet_blue_kg = EXCLUDED.pet_blue_kg, updated_at = now()
       RETURNING id, payout, (xmax = 0) AS inserted`;
     await audit(row.id, row.inserted ? 'create' : 'update', { ...fields, date, worker_id: e.worker_id, bulk: true });
     results.push({ worker_id: e.worker_id, id: row.id, payout: row.payout });
