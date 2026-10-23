@@ -4,6 +4,7 @@ import { requireAuth } from './_lib/auth.js';
 import { sql } from './_lib/db.js';
 import { decrypt } from './_lib/crypto.js';
 import { isValidDate, monthBounds } from './_lib/dates.js';
+import { PET_TYPES } from './_lib/pet.js';
 
 const NAIRA = '"₦"#,##0.00';
 const KG = '#,##0.00';
@@ -28,6 +29,8 @@ export default handle(async (req) => {
 
   const rows = await sql`
     SELECT r.date, r.pet_kg, r.cover_kg, r.bales_produced, r.payout,
+           r.pet_clear_kg, r.pet_oily_kg, r.pet_brown_kg, r.pet_green_kg,
+           r.pet_viju_kg, r.pet_freshyo_kg, r.pet_blue_kg, r.pet_black_kg,
            r.pet_rate, r.cover_rate, r.bale_rate,
            w.id AS worker_id, w.full_name, w.role, w.bank_name, w.account_number
       FROM daily_records r JOIN workers w ON w.id = r.worker_id
@@ -89,21 +92,25 @@ export default handle(async (req) => {
     role: 'Sorter', qtyHeader: 'Total kg', qtyFmt: KG, payHeader: 'Total PET Payout',
   });
 
-  // Sheet 2 — Sorters · Covers
+  // Sheets 2 & 3 — PET broken down by type: per-sorter totals, then per day
+  buildPetTypeSheet(wb, rows, bank, d);
+  buildPetDailySheet(wb, rows, bank, d);
+
+  // Sheet 4 — Sorters · Covers
   buildMaterialSheet(wb, 'Sorters · Covers', rows, workedDates, bank, {
     pick: (r) => Number(r.cover_kg) || 0,
     pay: (r) => (Number(r.cover_kg) || 0) * (Number(r.cover_rate) || 0),
     role: 'Sorter', qtyHeader: 'Total kg', qtyFmt: KG, payHeader: 'Total Cover Payout',
   });
 
-  // Sheet 3 — Balers
+  // Sheet 5 — Balers
   buildMaterialSheet(wb, 'Balers', rows, workedDates, bank, {
     pick: (r) => Number(r.bales_produced) || 0,
     pay: (r) => (Number(r.bales_produced) || 0) * (Number(r.bale_rate) || 0),
     role: 'Baler', qtyHeader: 'Total Bales', qtyFmt: '#,##0', payHeader: 'Total Payout',
   });
 
-  // Sheet 4 — Payment Summary (one row per worker, used for the bank transfer)
+  // Sheet 6 — Payment Summary (one row per worker, used for the bank transfer)
   buildSummarySheet(wb, summaryRows(rows, adj, meta, bank));
 
   const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
@@ -142,6 +149,77 @@ function buildMaterialSheet(wb, name, rows, dates, bank, cfg) {
   const ws = XLSX.utils.aoa_to_sheet(data);
   formatSheet(ws, data.length, dates.length, cfg.qtyFmt);
   XLSX.utils.book_append_sheet(wb, ws, name);
+}
+
+// kg per PET type for one record. Records saved before the breakdown existed
+// have only pet_kg; whatever the types don't account for goes to "Untyped".
+function petSplit(r) {
+  const kg = PET_TYPES.map((t) => Number(r[t.col]) || 0);
+  const untyped = round2((Number(r.pet_kg) || 0) - kg.reduce((s, n) => s + n, 0));
+  return { kg, untyped: untyped > 0 ? untyped : 0 };
+}
+
+const sorterPetRows = (rows) => rows.filter((r) => r.role === 'Sorter' && Number(r.pet_kg) > 0);
+
+// Type columns, plus "Untyped" only when the range contains older records.
+function petColumns(rows) {
+  const anyUntyped = rows.some((r) => petSplit(r).untyped > 0);
+  return { labels: [...PET_TYPES.map((t) => t.label), ...(anyUntyped ? ['Untyped'] : [])], anyUntyped };
+}
+
+// One row per sorter: kg of each PET type over the range, total kg and payout.
+function buildPetTypeSheet(wb, rows, bank) {
+  const petRows = sorterPetRows(rows);
+  const { labels, anyUntyped } = petColumns(petRows);
+  const n = labels.length;
+
+  const byWorker = new Map();
+  for (const r of petRows) {
+    if (!byWorker.has(r.worker_id)) byWorker.set(r.worker_id, { name: r.full_name, kg: Array(n).fill(0), total: 0, pay: 0 });
+    const w = byWorker.get(r.worker_id);
+    const { kg, untyped } = petSplit(r);
+    kg.forEach((v, i) => { w.kg[i] += v; });
+    if (anyUntyped) w.kg[n - 1] += untyped;
+    w.total += Number(r.pet_kg) || 0;
+    w.pay += (Number(r.pet_kg) || 0) * (Number(r.pet_rate) || 0);
+  }
+
+  const data = [['Name', 'Bank Name', 'Account No.', ...labels, 'Total PET kg', 'Total PET Payout']];
+  const totals = { kg: Array(n).fill(0), total: 0, pay: 0 };
+  for (const [id, w] of [...byWorker].sort((a, b) => a[1].name.localeCompare(b[1].name))) {
+    const b = bank.get(id) || { name: '', acct: '' };
+    data.push([w.name, b.name, b.acct, ...w.kg.map(round2), round2(w.total), round2(w.pay)]);
+    w.kg.forEach((v, i) => { totals.kg[i] += v; });
+    totals.total += w.total; totals.pay += w.pay;
+  }
+  if (byWorker.size === 0) data.push(['No PET records in range']);
+  else data.push(['', '', 'GRAND TOTAL', ...totals.kg.map(round2), round2(totals.total), round2(totals.pay)]);
+
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  formatSheet(ws, data.length, n, KG);
+  XLSX.utils.book_append_sheet(wb, ws, 'Sorters · PET by Type');
+}
+
+// One row per sorter per day with kg of each PET type — the full detail.
+function buildPetDailySheet(wb, rows, bank, d) {
+  const petRows = [...sorterPetRows(rows)]
+    .sort((a, b) => a.full_name.localeCompare(b.full_name) || d(a.date).localeCompare(d(b.date)));
+  const { labels, anyUntyped } = petColumns(petRows);
+
+  const data = [['Date', 'Name', 'Account No.', ...labels, 'Total PET kg', 'PET Payout']];
+  for (const r of petRows) {
+    const b = bank.get(r.worker_id) || { name: '', acct: '' };
+    const { kg, untyped } = petSplit(r);
+    const cells = [...kg, ...(anyUntyped ? [untyped] : [])].map((v) => (v ? round2(v) : ''));
+    data.push([d(r.date), r.full_name, b.acct, ...cells,
+      round2(r.pet_kg), round2((Number(r.pet_kg) || 0) * (Number(r.pet_rate) || 0))]);
+  }
+  if (petRows.length === 0) data.push(['No PET records in range']);
+
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  formatSheet(ws, data.length, labels.length, KG);
+  ws['!cols'][0] = { wch: 12 }; ws['!cols'][1] = { wch: 24 };
+  XLSX.utils.book_append_sheet(wb, ws, 'Sorters · PET Daily');
 }
 
 // One netted row per worker who has either records or adjustments in range.
@@ -206,14 +284,14 @@ function acctText(acct) { return acct ? `="${acct}"` : ''; }
 
 function recordsCsv(rows, bank, d) {
   const header = ['Date', 'Worker', 'Role', 'Bank Name', 'Account No.',
-    'PET kg', 'Cover kg', 'Bales', 'PET rate', 'Cover rate', 'Bale rate', 'Payout'];
+    ...PET_TYPES.map((t) => `${t.label} kg`), 'PET kg', 'Cover kg', 'Bales', 'PET rate', 'Cover rate', 'Bale rate', 'Payout'];
   const lines = [csvLine(header)];
   const sorted = [...rows].sort((a, b) => a.full_name.localeCompare(b.full_name) || d(a.date).localeCompare(d(b.date)));
   for (const r of sorted) {
     const b = bank.get(r.worker_id) || { name: '', acct: '' };
     lines.push(csvLine([
       d(r.date), r.full_name, r.role, b.name, acctText(b.acct),
-      num(r.pet_kg), num(r.cover_kg), num(r.bales_produced),
+      ...PET_TYPES.map((t) => num(r[t.col])), num(r.pet_kg), num(r.cover_kg), num(r.bales_produced),
       num(r.pet_rate), num(r.cover_rate), num(r.bale_rate), round2(r.payout),
     ]));
   }

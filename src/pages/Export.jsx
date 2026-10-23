@@ -83,12 +83,14 @@ export default function ExportPage() {
         </button>
 
         <div className="card" style={{ background: 'var(--cream)', borderStyle: 'dashed', marginTop: 18 }}>
-          <strong>The workbook has four sheets:</strong>
+          <strong>The workbook has six sheets:</strong>
           <p className="muted" style={{ margin: '6px 0 0', fontSize: 13.5, lineHeight: 1.6 }}>
             <b>Sorters · PET</b> and <b>Sorters · Covers</b> — daily kg per worker with that material's payout.
+            <b> Sorters · PET by Type</b> — each sorter's kg of Clear, Oily, Brown, Green, Viju, Freshyo, Blue and Black
+            for the period. <b>Sorters · PET Daily</b> — the same breakdown for every day.
             <b> Balers</b> — daily bale counts and payout. <b>Payment Summary</b> — one line per worker showing
             gross, advances, deductions, bonus and <b>net pay</b> with bank details, ready for the transfer.
-            CSV gives the same data without formatting — raw records for pivoting, or the netted summary.
+            CSV gives the same data without formatting — raw records (with a column per PET type) for pivoting, or the netted summary.
           </p>
         </div>
       </div>

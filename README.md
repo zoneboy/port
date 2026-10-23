@@ -18,7 +18,7 @@ Built per PRD v2: **React (Vite) + Netlify Functions + Neon PostgreSQL**.
 - **Daily entry** — separate Sorter / Baler workflows with a live payout preview; one record per worker per day. A **bulk single-date grid** enters (or edits) every active worker of a role in one batch.
 - **Advances & deductions** — a `worker_adjustments` ledger (advance / deduction / bonus). These net against gross so the export and payslips show **what you actually transfer**.
 - **Records** — filter by date range / worker / material, edit (keep locked rate or re-price at today's rate), soft-delete with audit log.
-- **Export** — `.xlsx` or `.csv` for a month or custom range. The workbook has four sheets: *Sorters · PET*, *Sorters · Covers*, *Balers*, and a *Payment Summary* (gross → advances → deductions → bonus → **net pay**) for the bank transfer. CSV gives the same data unformatted — raw records or the netted summary. Account numbers export as text; payouts as ₦ currency.
+- **Export** — `.xlsx` or `.csv` for a month or custom range. The workbook has six sheets: *Sorters · PET*, *Sorters · PET by Type* (each sorter's kg of Clear, Oily, Brown, Green, Viju, Freshyo, Blue and Black), *Sorters · PET Daily* (the same breakdown per day), *Sorters · Covers*, *Balers*, and a *Payment Summary* (gross → advances → deductions → bonus → **net pay**) for the bank transfer. CSV gives the same data unformatted — raw records (one column per PET type) or the netted summary. Account numbers export as text; payouts as ₦ currency.
 - **Payslip** — per-worker PDF for a period: daily output breakdown, gross, advances/adjustments, net pay, and bank details.
 
 The pricing model from the PRD is enforced in the schema: rates are **snapshotted onto each
