@@ -13,13 +13,13 @@ Built per PRD v2: **React (Vite) + Netlify Functions + Neon PostgreSQL**.
 
 - **Auth** — single admin, bcrypt password, JWT in an httpOnly cookie, 20-minute idle auto-logout, optional Upstash login rate limiting.
 - **Dashboard** — today + rolling 7/30-day output (PET kg, Cover kg, bales), expected payout, top-3 sorters and balers, a **30-day trend chart**, and a **daily-completeness panel** flagging active workers with no record for a chosen date.
-- **Pricing** — three global rates. Changing them affects future entries only.
+- **Pricing** — PET, Cover and Bale rates plus the fixed **washing pay per worker**. Changing them affects future entries only.
 - **Workers** — add / edit / deactivate. Bank name + 10-digit NUBAN, **AES-256-GCM encrypted at rest**.
-- **Daily entry** — separate Sorter / Baler workflows with a live payout preview; one record per worker per day. A **bulk single-date grid** enters (or edits) every active worker of a role in one batch.
+- **Daily entry** — separate Sorter / Baler workflows with a live payout preview; one record per worker per day. A **bulk single-date grid** enters (or edits) every active worker of a role in one batch. A **Washing** tab records occasional washing days: tick the workers who came, and each is paid the same fixed amount on top of their normal wage.
 - **Advances & deductions** — a `worker_adjustments` ledger (advance / deduction / bonus). These net against gross so the export and payslips show **what you actually transfer**.
 - **Records** — filter by date range / worker / material, edit (keep locked rate or re-price at today's rate), soft-delete with audit log.
-- **Export** — `.xlsx` or `.csv` for a month or custom range. The workbook has six sheets: *Sorters · PET*, *Sorters · PET by Type* (each sorter's kg of Clear, Oily, Brown, Green, Viju, Freshyo, Blue and Black), *Sorters · PET Daily* (the same breakdown per day), *Sorters · Covers*, *Balers*, and a *Payment Summary* (gross → advances → deductions → bonus → **net pay**) for the bank transfer. CSV gives the same data unformatted — raw records (one column per PET type) or the netted summary. Account numbers export as text; payouts as ₦ currency.
-- **Payslip** — per-worker PDF for a period: daily output breakdown, gross, advances/adjustments, net pay, and bank details.
+- **Export** — `.xlsx` or `.csv` for a month or custom range. The workbook has seven sheets: *Sorters · PET*, *Sorters · PET by Type* (each sorter's kg of Clear, Oily, Brown, Green, Viju, Freshyo, Blue and Black), *Sorters · PET Daily* (the same breakdown per day), *Sorters · Covers*, *Balers*, *Washing* (each washing day and each worker's washing pay), and a *Payment Summary* (output + washing = gross → advances → deductions → bonus → **net pay**) for the bank transfer. CSV gives the same data unformatted — raw records (one column per PET type) or the netted summary. Account numbers export as text; payouts as ₦ currency.
+- **Payslip** — per-worker PDF for a period: daily output and washing breakdown, gross, advances/adjustments, net pay, and bank details.
 
 The pricing model from the PRD is enforced in the schema: rates are **snapshotted onto each
 record** and `payout` is a Postgres `GENERATED` column, so historical pay never drifts. Net

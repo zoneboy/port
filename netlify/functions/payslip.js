@@ -48,11 +48,17 @@ export default handle(async (req) => {
      WHERE deleted_at IS NULL AND worker_id = ${workerId} AND date >= ${from} AND date <= ${to}
      ORDER BY date`;
 
+  const washing = await sql`
+    SELECT s.date, s.material, s.pay_rate
+      FROM washing_sessions s JOIN washing_workers ww ON ww.session_id = s.id
+     WHERE s.deleted_at IS NULL AND ww.worker_id = ${workerId} AND s.date >= ${from} AND s.date <= ${to}
+     ORDER BY s.date`;
+
   const bankName = decrypt(worker.bank_name);
   const acct = decrypt(worker.account_number);
 
   const pdf = await buildPdf({
-    worker, bankName, acct, from, to, label, records, adjustments,
+    worker, bankName, acct, from, to, label, records, adjustments, washing,
   });
   const bytes = await pdf.save();
 
@@ -66,7 +72,7 @@ export default handle(async (req) => {
   });
 });
 
-async function buildPdf({ worker, bankName, acct, from, to, records, adjustments }) {
+async function buildPdf({ worker, bankName, acct, from, to, records, adjustments, washing }) {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -125,6 +131,10 @@ async function buildPdf({ worker, bankName, acct, from, to, records, adjustments
     if (Number(r.bales_produced) > 0)
       lineItems.push([d, `${r.bales_produced} bales`, `${money(r.bale_rate)}/bale`, Number(r.bales_produced) * Number(r.bale_rate)]);
   }
+  for (const w of washing) {
+    lineItems.push([String(w.date).slice(0, 10), `Washing - ${w.material}`, 'fixed', Number(w.pay_rate)]);
+  }
+  lineItems.sort((a, b) => a[0].localeCompare(b[0]));
 
   if (lineItems.length === 0) {
     text('No recorded output in this period.', M, y, { size: 10, color: MUTED });

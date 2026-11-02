@@ -143,3 +143,36 @@ CREATE INDEX IF NOT EXISTS idx_adj_worker_date
   ON worker_adjustments (worker_id, date) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_adj_date
   ON worker_adjustments (date) WHERE deleted_at IS NULL;
+
+-- ─────────────────────────────────────────────────────────────
+-- Washing days. Occasional (a few times a month): a group of existing
+-- workers washes a material and each is paid the same fixed amount,
+-- separate from their per-kg / per-bale wage. The rate is snapshotted
+-- per washing day so changing it in Settings never alters past pay.
+-- ─────────────────────────────────────────────────────────────
+ALTER TABLE settings
+  ADD COLUMN IF NOT EXISTS washing_pay_per_worker numeric(10,2) NOT NULL DEFAULT 3000;
+ALTER TABLE settings_history
+  ADD COLUMN IF NOT EXISTS washing_pay_per_worker numeric(10,2);
+
+CREATE TABLE IF NOT EXISTS washing_sessions (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  date        date           NOT NULL,              -- Africa/Lagos calendar date
+  material    text           NOT NULL DEFAULT 'Oily PET',
+  kg_washed   numeric(10,2)  NOT NULL DEFAULT 0 CHECK (kg_washed >= 0),  -- for the record only
+  pay_rate    numeric(10,2)  NOT NULL CHECK (pay_rate >= 0),            -- per worker, snapshot
+  note        text,
+  created_at  timestamptz    NOT NULL DEFAULT now(),
+  updated_at  timestamptz    NOT NULL DEFAULT now(),
+  deleted_at  timestamptz                            -- soft delete, matches daily_records
+);
+CREATE INDEX IF NOT EXISTS idx_washing_date
+  ON washing_sessions (date) WHERE deleted_at IS NULL;
+
+-- Who came to wash on that day. Each is paid the session's pay_rate.
+CREATE TABLE IF NOT EXISTS washing_workers (
+  session_id  uuid NOT NULL REFERENCES washing_sessions(id) ON DELETE CASCADE,
+  worker_id   uuid NOT NULL REFERENCES workers(id),
+  PRIMARY KEY (session_id, worker_id)
+);
+CREATE INDEX IF NOT EXISTS idx_washing_workers_worker ON washing_workers (worker_id);

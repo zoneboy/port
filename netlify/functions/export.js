@@ -47,7 +47,18 @@ export default handle(async (req) => {
      WHERE a.deleted_at IS NULL AND a.date >= ${from} AND a.date <= ${to}
      GROUP BY a.worker_id, w.full_name, w.role, w.bank_name, w.account_number, a.type`;
 
-  // Decrypt bank fields once per worker (from records and adjustments alike).
+  // Washing days in range, one row per worker who washed. Each is paid the
+  // day's snapshotted pay_rate, which counts toward gross pay.
+  const washRows = await sql`
+    SELECT s.id AS session_id, s.date, s.material, s.kg_washed, s.pay_rate, s.note,
+           w.id AS worker_id, w.full_name, w.role, w.bank_name, w.account_number
+      FROM washing_sessions s
+      JOIN washing_workers ww ON ww.session_id = s.id
+      JOIN workers w ON w.id = ww.worker_id
+     WHERE s.deleted_at IS NULL AND s.date >= ${from} AND s.date <= ${to}
+     ORDER BY s.date, w.full_name`;
+
+  // Decrypt bank fields once per worker (from records, adjustments and washing).
   const bank = new Map();
   const meta = new Map(); // worker_id -> { name, role }
   const remember = (r) => {
@@ -56,6 +67,7 @@ export default handle(async (req) => {
   };
   rows.forEach(remember);
   adjRows.forEach(remember);
+  washRows.forEach(remember);
 
   // worker_id -> { advance, deduction, bonus }
   const adj = new Map();
@@ -72,8 +84,8 @@ export default handle(async (req) => {
   if (format === 'csv') {
     const kind = url.searchParams.get('csv') === 'summary' ? 'summary' : 'records';
     const csv = kind === 'summary'
-      ? summaryCsv(summaryRows(rows, adj, meta, bank))
-      : recordsCsv(rows, bank, d);
+      ? summaryCsv(summaryRows(rows, washRows, adj, meta, bank))
+      : recordsCsv(rows, washRows, bank, d);
     return new Response(csv, {
       status: 200,
       headers: {
@@ -110,8 +122,11 @@ export default handle(async (req) => {
     role: 'Baler', qtyHeader: 'Total Bales', qtyFmt: '#,##0', payHeader: 'Total Payout',
   });
 
-  // Sheet 6 — Payment Summary (one row per worker, used for the bank transfer)
-  buildSummarySheet(wb, summaryRows(rows, adj, meta, bank));
+  // Sheet 6 — Washing days and each worker's washing pay
+  buildWashingSheet(wb, washRows, bank, d);
+
+  // Sheet 7 — Payment Summary (one row per worker, used for the bank transfer)
+  buildSummarySheet(wb, summaryRows(rows, washRows, adj, meta, bank));
 
   const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
   return new Response(buf, {
@@ -222,11 +237,55 @@ function buildPetDailySheet(wb, rows, bank, d) {
   XLSX.utils.book_append_sheet(wb, ws, 'Sorters · PET Daily');
 }
 
-// One netted row per worker who has either records or adjustments in range.
-// net = gross − advances − deductions + bonuses. Sorted by name.
-function summaryRows(rows, adj, meta, bank) {
-  const gross = new Map();
-  for (const r of rows) gross.set(r.worker_id, (gross.get(r.worker_id) || 0) + (Number(r.payout) || 0));
+// Two tables on one sheet: every washing day (who came, what it cost), then
+// each worker's washing total for the period.
+function buildWashingSheet(wb, washRows, bank, d) {
+  const days = new Map();
+  const perWorker = new Map();
+  for (const r of washRows) {
+    if (!days.has(r.session_id)) days.set(r.session_id, { ...r, names: [] });
+    days.get(r.session_id).names.push(r.full_name);
+    if (!perWorker.has(r.worker_id)) perWorker.set(r.worker_id, { name: r.full_name, days: 0, pay: 0 });
+    const w = perWorker.get(r.worker_id);
+    w.days += 1; w.pay += Number(r.pay_rate) || 0;
+  }
+
+  const data = [['Date', 'Material', 'Kg Washed', 'Workers', 'Pay per Worker', 'Total Pay', 'Who Washed', 'Note']];
+  const money = [];   // [row, col] cells to format as currency
+  let grand = 0;
+  for (const s of days.values()) {
+    const total = (Number(s.pay_rate) || 0) * s.names.length;
+    grand += total;
+    money.push([data.length, 4], [data.length, 5]);
+    data.push([d(s.date), s.material, round2(s.kg_washed), s.names.length, round2(s.pay_rate), round2(total),
+      s.names.join(', '), s.note || '']);
+  }
+  if (days.size === 0) data.push(['No washing days in range']);
+  else { money.push([data.length, 5]); data.push(['', '', '', '', 'TOTAL', round2(grand)]); }
+
+  data.push([], ['Name', 'Bank Name', 'Account No.', 'Days Washed', 'Washing Pay']);
+  for (const [id, w] of [...perWorker].sort((a, b) => a[1].name.localeCompare(b[1].name))) {
+    const b = bank.get(id) || { name: '', acct: '' };
+    money.push([data.length, 4]);
+    data.push([w.name, b.name, b.acct, w.days, round2(w.pay)]);
+  }
+
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  for (const [r, c] of money) {
+    const addr = XLSX.utils.encode_cell({ r, c });
+    if (ws[addr] && typeof ws[addr].v === 'number') ws[addr].z = NAIRA;
+  }
+  ws['!cols'] = [{ wch: 24 }, { wch: 20 }, { wch: 16 }, { wch: 12 }, { wch: 15 }, { wch: 14 }, { wch: 48 }, { wch: 24 }];
+  XLSX.utils.book_append_sheet(wb, ws, 'Washing');
+}
+
+// One netted row per worker who has records, washing or adjustments in range.
+// gross = output payout + washing pay; net = gross − advances − deductions + bonuses.
+function summaryRows(rows, washRows, adj, meta, bank) {
+  const output = new Map();
+  for (const r of rows) output.set(r.worker_id, (output.get(r.worker_id) || 0) + (Number(r.payout) || 0));
+  const washing = new Map();
+  for (const r of washRows) washing.set(r.worker_id, (washing.get(r.worker_id) || 0) + (Number(r.pay_rate) || 0));
 
   const ids = new Set([...meta.keys()]);
   const out = [];
@@ -234,11 +293,13 @@ function summaryRows(rows, adj, meta, bank) {
     const m = meta.get(id) || { name: '', role: '' };
     const b = bank.get(id) || { name: '', acct: '' };
     const a = adj.get(id) || { advance: 0, deduction: 0, bonus: 0 };
-    const g = gross.get(id) || 0;
+    const o = output.get(id) || 0;
+    const wsh = washing.get(id) || 0;
+    const g = o + wsh;
     const net = g - a.advance - a.deduction + a.bonus;
     out.push({
       name: m.name, role: m.role, bankName: b.name, acct: b.acct,
-      gross: round2(g), advances: round2(a.advance), deductions: round2(a.deduction),
+      output: round2(o), washing: round2(wsh), gross: round2(g), advances: round2(a.advance), deductions: round2(a.deduction),
       bonus: round2(a.bonus), net: round2(net),
     });
   }
@@ -247,27 +308,27 @@ function summaryRows(rows, adj, meta, bank) {
 
 function buildSummarySheet(wb, summary) {
   const header = ['Name', 'Role', 'Bank Name', 'Account No.',
-    'Gross Payout', 'Advances', 'Deductions', 'Bonus', 'Net Payout'];
+    'Output Payout', 'Washing Pay', 'Gross Payout', 'Advances', 'Deductions', 'Bonus', 'Net Payout'];
   const data = [header];
-  const totals = { gross: 0, advances: 0, deductions: 0, bonus: 0, net: 0 };
+  const totals = { output: 0, washing: 0, gross: 0, advances: 0, deductions: 0, bonus: 0, net: 0 };
   for (const s of summary) {
-    data.push([s.name, s.role, s.bankName, s.acct, s.gross, s.advances, s.deductions, s.bonus, s.net]);
-    totals.gross += s.gross; totals.advances += s.advances; totals.deductions += s.deductions;
+    data.push([s.name, s.role, s.bankName, s.acct, s.output, s.washing, s.gross, s.advances, s.deductions, s.bonus, s.net]);
+    totals.output += s.output; totals.washing += s.washing; totals.gross += s.gross; totals.advances += s.advances; totals.deductions += s.deductions;
     totals.bonus += s.bonus; totals.net += s.net;
   }
   data.push(['', '', '', 'GRAND TOTAL',
-    round2(totals.gross), round2(totals.advances), round2(totals.deductions), round2(totals.bonus), round2(totals.net)]);
+    round2(totals.output), round2(totals.washing), round2(totals.gross), round2(totals.advances), round2(totals.deductions), round2(totals.bonus), round2(totals.net)]);
 
   const ws = XLSX.utils.aoa_to_sheet(data);
-  // currency format on the four money columns (indices 4..8)
+  // currency format on the money columns (indices 4..10)
   for (let r = 1; r < data.length; r++) {
-    for (let c = 4; c <= 8; c++) {
+    for (let c = 4; c <= 10; c++) {
       const addr = XLSX.utils.encode_cell({ r, c });
       if (ws[addr] && typeof ws[addr].v === 'number') ws[addr].z = NAIRA;
     }
   }
   ws['!cols'] = [{ wch: 24 }, { wch: 10 }, { wch: 22 }, { wch: 16 },
-    { wch: 15 }, { wch: 13 }, { wch: 13 }, { wch: 12 }, { wch: 15 }];
+    { wch: 15 }, { wch: 13 }, { wch: 15 }, { wch: 13 }, { wch: 13 }, { wch: 12 }, { wch: 15 }];
   XLSX.utils.book_append_sheet(wb, ws, 'Payment Summary');
 }
 
@@ -282,17 +343,28 @@ function csvLine(arr) { return arr.map(csvCell).join(','); }
 // don't strip a leading 0 from a NUBAN.
 function acctText(acct) { return acct ? `="${acct}"` : ''; }
 
-function recordsCsv(rows, bank, d) {
-  const header = ['Date', 'Worker', 'Role', 'Bank Name', 'Account No.',
-    ...PET_TYPES.map((t) => `${t.label} kg`), 'PET kg', 'Cover kg', 'Bales', 'PET rate', 'Cover rate', 'Bale rate', 'Payout'];
+// Output records plus one "Washing" line per worker per washing day.
+function recordsCsv(rows, washRows, bank, d) {
+  const header = ['Date', 'Entry', 'Worker', 'Role', 'Bank Name', 'Account No.',
+    ...PET_TYPES.map((t) => `${t.label} kg`), 'PET kg', 'Cover kg', 'Bales', 'PET rate', 'Cover rate', 'Bale rate', 'Payout', 'Washing'];
   const lines = [csvLine(header)];
-  const sorted = [...rows].sort((a, b) => a.full_name.localeCompare(b.full_name) || d(a.date).localeCompare(d(b.date)));
+  const all = [...rows.map((r) => ({ ...r, entry: 'Output' })), ...washRows.map((r) => ({ ...r, entry: 'Washing' }))];
+  const sorted = all.sort((a, b) => a.full_name.localeCompare(b.full_name) || d(a.date).localeCompare(d(b.date))
+    || a.entry.localeCompare(b.entry));
   for (const r of sorted) {
     const b = bank.get(r.worker_id) || { name: '', acct: '' };
+    if (r.entry === 'Washing') {
+      lines.push(csvLine([
+        d(r.date), 'Washing', r.full_name, r.role, b.name, acctText(b.acct),
+        ...PET_TYPES.map(() => ''), '', '', '', '', '', '', round2(r.pay_rate),
+        `${r.material} (${num(r.kg_washed)} kg washed by the group)`,
+      ]));
+      continue;
+    }
     lines.push(csvLine([
-      d(r.date), r.full_name, r.role, b.name, acctText(b.acct),
+      d(r.date), 'Output', r.full_name, r.role, b.name, acctText(b.acct),
       ...PET_TYPES.map((t) => num(r[t.col])), num(r.pet_kg), num(r.cover_kg), num(r.bales_produced),
-      num(r.pet_rate), num(r.cover_rate), num(r.bale_rate), round2(r.payout),
+      num(r.pet_rate), num(r.cover_rate), num(r.bale_rate), round2(r.payout), '',
     ]));
   }
   return lines.join('\r\n');
@@ -300,11 +372,11 @@ function recordsCsv(rows, bank, d) {
 
 function summaryCsv(summary) {
   const header = ['Name', 'Role', 'Bank Name', 'Account No.',
-    'Gross Payout', 'Advances', 'Deductions', 'Bonus', 'Net Payout'];
+    'Output Payout', 'Washing Pay', 'Gross Payout', 'Advances', 'Deductions', 'Bonus', 'Net Payout'];
   const lines = [csvLine(header)];
   for (const s of summary) {
     lines.push(csvLine([s.name, s.role, s.bankName, acctText(s.acct),
-      s.gross, s.advances, s.deductions, s.bonus, s.net]));
+      s.output, s.washing, s.gross, s.advances, s.deductions, s.bonus, s.net]));
   }
   return lines.join('\r\n');
 }
