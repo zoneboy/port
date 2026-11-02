@@ -1,10 +1,11 @@
-import { handle, json } from './_lib/respond.js';
+import { handle, json, HttpError } from './_lib/respond.js';
 import { requireAuth } from './_lib/auth.js';
 import { sql } from './_lib/db.js';
-import { todayLagos, daysAgoLagos } from './_lib/dates.js';
+import { todayLagos, daysAgoLagos, isValidDate } from './_lib/dates.js';
 
 export default handle(async (req) => {
   requireAuth(req);
+  const url = new URL(req.url);
 
   const today = todayLagos();
   const last7 = daysAgoLagos(6);   // inclusive 7-day window
@@ -50,6 +51,16 @@ export default handle(async (req) => {
       FROM daily_records
      WHERE deleted_at IS NULL AND date >= ${last30} AND date <= ${today}
      GROUP BY date ORDER BY date`;
+
+  // ?date=YYYY-MM-DD → just that day's summary, for the "Pick a day" view.
+  const date = url.searchParams.get('date');
+  if (date) {
+    if (!isValidDate(date)) throw new HttpError(400, 'Valid date is required');
+    const [day, sorters, balers] = await Promise.all([
+      totals(date, date), topSorters(date, date), topBalers(date, date),
+    ]);
+    return json({ date, day, topSorters: sorters, topBalers: balers });
+  }
 
   const [todayT, week, month, sorters, balers, series] = await Promise.all([
     totals(today, today),

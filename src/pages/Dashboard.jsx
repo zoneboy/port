@@ -5,14 +5,30 @@ import { useToast } from '../App.jsx';
 export default function Dashboard({ go }) {
   const notify = useToast();
   const [d, setD] = useState(null);
-  const [period, setPeriod] = useState('week'); // week | month
+  const [period, setPeriod] = useState('week'); // week | month | day
+  const [dayDate, setDayDate] = useState('');
+  const [dayData, setDayData] = useState(null); // summary for the picked day
 
   useEffect(() => {
-    api.dashboard().then(setD).catch((e) => notify(e.message, 'err'));
+    api.dashboard().then((r) => { setD(r); setDayDate((x) => x || r.asOf); }).catch((e) => notify(e.message, 'err'));
   }, [notify]);
 
+  useEffect(() => {
+    if (period !== 'day' || !dayDate) return;
+    setDayData(null);
+    api.dashboard(dayDate).then(setDayData).catch((e) => notify(e.message, 'err'));
+  }, [period, dayDate, notify]);
+
   if (!d) return <div className="empty">Loading dashboard…</div>;
-  const p = d[period];
+
+  const isDay = period === 'day';
+  const p = isDay ? dayData?.day : d[period];
+  const tops = isDay ? dayData : d;
+  const loadingDay = isDay && !dayData;
+  const show = (fn) => (loadingDay ? '…' : fn());
+  const periodLabel = isDay ? `Summary for ${dayDate}` : period === 'week' ? 'Last 7 days' : 'Last 30 days';
+  const shortLabel = isDay ? dayDate : period === 'week' ? '7 days' : '30 days';
+  const topSuffix = isDay ? dayDate : '30d';
 
   return (
     <>
@@ -21,9 +37,15 @@ export default function Dashboard({ go }) {
           <p className="eyebrow">Operations overview</p>
           <h1>Dashboard</h1>
         </div>
-        <div className="row" style={{ flex: '0 0 auto' }}>
+        <div className="row" style={{ flex: '0 0 auto', alignItems: 'center' }}>
           <button className={`btn sm ${period === 'week' ? '' : 'ghost'}`} onClick={() => setPeriod('week')}>Last 7 days</button>
           <button className={`btn sm ${period === 'month' ? '' : 'ghost'}`} onClick={() => setPeriod('month')}>Last 30 days</button>
+          <button className={`btn sm ${isDay ? '' : 'ghost'}`} onClick={() => setPeriod('day')}>Pick a day</button>
+          {isDay && (
+            <input type="date" value={dayDate} max={d.asOf} aria-label="Day of interest"
+              style={{ width: 'auto', padding: '6px 10px' }}
+              onChange={(e) => e.target.value && setDayDate(e.target.value)} />
+          )}
         </div>
       </div>
 
@@ -41,21 +63,21 @@ export default function Dashboard({ go }) {
       <div className="section-title">30-day trend</div>
       <TrendChart data={d.trend} asOf={d.asOf} />
 
-      <div className="section-title">{period === 'week' ? 'Last 7 days' : 'Last 30 days'}</div>
+      <div className="section-title">{periodLabel}</div>
       <div className="grid cols-3">
-        <Stat label="PET sorted" value={kg(p.pet_kg)} cls="accent-pet" />
-        <Stat label="Covers sorted" value={kg(p.cover_kg)} cls="accent-leaf" />
-        <Stat label="Bales produced" value={intf(p.bales)} cls="accent-brass" />
+        <Stat label="PET sorted" value={show(() => kg(p.pet_kg))} cls="accent-pet" />
+        <Stat label="Covers sorted" value={show(() => kg(p.cover_kg))} cls="accent-leaf" />
+        <Stat label="Bales produced" value={show(() => intf(p.bales))} cls="accent-brass" />
       </div>
 
       <div className="grid cols-3" style={{ marginTop: 16 }}>
         <div className="card stat" style={{ gridColumn: 'span 1' }}>
-          <div className="label">Expected payout — {period === 'week' ? '7 days' : '30 days'}</div>
-          <div className="value" style={{ color: 'var(--brass-dim)' }}>{naira(p.payout)}</div>
-          <div className="sub">Sum of locked payouts in period</div>
+          <div className="label">Expected payout — {shortLabel}</div>
+          <div className="value" style={{ color: 'var(--brass-dim)' }}>{show(() => naira(p.payout))}</div>
+          <div className="sub">Sum of locked payouts{isDay ? ' that day' : ' in period'}, including washing</div>
         </div>
-        <Leaderboard title="Top sorters (30d)" rows={d.topSorters} fmt={(r) => kg(r.kg)} />
-        <Leaderboard title="Top balers (30d)" rows={d.topBalers} fmt={(r) => intf(r.bales) + ' bales'} />
+        <Leaderboard title={`Top sorters (${topSuffix})`} rows={tops?.topSorters} fmt={(r) => kg(r.kg)} />
+        <Leaderboard title={`Top balers (${topSuffix})`} rows={tops?.topBalers} fmt={(r) => intf(r.bales) + ' bales'} />
       </div>
     </>
   );
@@ -204,7 +226,8 @@ function Leaderboard({ title, rows, fmt }) {
   return (
     <div className="card">
       <div className="label" style={{ fontSize: 12, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 10 }}>{title}</div>
-      {(!rows || rows.length === 0) && <div className="muted" style={{ fontSize: 13 }}>No data yet</div>}
+      {!rows && <div className="muted" style={{ fontSize: 13 }}>Loading…</div>}
+      {rows && rows.length === 0 && <div className="muted" style={{ fontSize: 13 }}>No data yet</div>}
       {rows && rows.map((r, i) => (
         <div className="leader" key={i}>
           <span className="rank">{i + 1}</span>
