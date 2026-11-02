@@ -227,3 +227,13 @@ td.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; }
   .main { padding: 22px; }
 }
+
+/* Washing day: tick-list of workers who came */
+.wash-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.wash-worker {
+  display: flex; align-items: center; gap: 9px; padding: 9px 11px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 9px; background: #fff; font-size: 14px;
+}
+.wash-worker input { width: auto; }
+.wash-worker span:first-of-type { flex: 1; }
+.wash-worker.on { border-color: var(--brass); background: rgba(201,162,75,0.10); }

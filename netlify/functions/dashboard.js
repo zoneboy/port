@@ -18,7 +18,12 @@ export default handle(async (req) => {
              COALESCE(SUM(payout),0)::numeric        AS payout
         FROM daily_records
        WHERE deleted_at IS NULL AND date >= ${from} AND date <= ${to}`;
-    return t;
+    // Washing pay is part of what's owed, so it counts toward expected payout.
+    const [w] = await sql`
+      SELECT COALESCE(SUM(s.pay_rate),0)::numeric AS washing
+        FROM washing_sessions s JOIN washing_workers ww ON ww.session_id = s.id
+       WHERE s.deleted_at IS NULL AND s.date >= ${from} AND s.date <= ${to}`;
+    return { ...t, payout: Number(t.payout) + Number(w.washing) };
   };
 
   const topSorters = async (from, to) => sql`

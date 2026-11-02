@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { api, naira } from '../api.js';
 import { useToast } from '../App.jsx';
 import { PET_TYPES, emptyPet, petTotal, petFromRecord } from '../petTypes.js';
+import WashingEntry from './Washing.jsx';
 
 function todayStr() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Lagos' }).format(new Date());
@@ -28,13 +29,16 @@ export default function Entry({ go }) {
       <div className="page-head">
         <div><p className="eyebrow">Data entry</p><h1>Daily Entry</h1></div>
         <div className="row" style={{ flex: '0 0 auto', gap: 18 }}>
-          <div className="row" style={{ flex: '0 0 auto', gap: 6 }}>
-            <button className={`btn sm ${mode === 'single' ? '' : 'ghost'}`} onClick={() => setMode('single')}>Single</button>
-            <button className={`btn sm ${mode === 'bulk' ? '' : 'ghost'}`} onClick={() => setMode('bulk')}>Bulk grid</button>
-          </div>
+          {tab !== 'Washing' && (
+            <div className="row" style={{ flex: '0 0 auto', gap: 6 }}>
+              <button className={`btn sm ${mode === 'single' ? '' : 'ghost'}`} onClick={() => setMode('single')}>Single</button>
+              <button className={`btn sm ${mode === 'bulk' ? '' : 'ghost'}`} onClick={() => setMode('bulk')}>Bulk grid</button>
+            </div>
+          )}
           <div className="row" style={{ flex: '0 0 auto', gap: 6 }}>
             <button className={`btn sm ${tab === 'Sorter' ? '' : 'ghost'}`} onClick={() => setTab('Sorter')}>Sorter</button>
             <button className={`btn sm ${tab === 'Baler' ? '' : 'ghost'}`} onClick={() => setTab('Baler')}>Baler</button>
+            <button className={`btn sm ${tab === 'Washing' ? '' : 'ghost'}`} onClick={() => setTab('Washing')}>Washing</button>
           </div>
         </div>
       </div>
@@ -45,7 +49,9 @@ export default function Entry({ go }) {
         </div>
       )}
 
-      {mode === 'single'
+      {tab === 'Washing'
+        ? <WashingEntry workers={workers} rates={rates} date={date} setDate={setDate} go={go} />
+        : mode === 'single'
         ? <SingleForm tab={tab} pool={pool} rates={rates} date={date} setDate={setDate} go={go} />
         : <BulkGrid tab={tab} pool={pool} rates={rates} date={date} setDate={setDate} go={go} />}
     </>

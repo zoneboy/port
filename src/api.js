@@ -45,6 +45,14 @@ export const api = {
   },
   addAdjustment: (a) => req('/adjustments', { method: 'POST', body: a }),
   deleteAdjustment: (id) => req(`/adjustments?id=${id}`, { method: 'DELETE' }),
+  // washing days (fixed pay per worker)
+  listWashing: (q = {}) => {
+    const p = new URLSearchParams(Object.entries(q).filter(([, v]) => v));
+    return req(`/washing?${p.toString()}`);
+  },
+  addWashing: (w) => req('/washing', { method: 'POST', body: w }),
+  updateWashing: (id, w) => req(`/washing?id=${id}`, { method: 'PUT', body: w }),
+  deleteWashing: (id) => req(`/washing?id=${id}`, { method: 'DELETE' }),
   // dashboard
   dashboard: () => req('/dashboard'),
   completeness: (date) => req(`/completeness${date ? `?date=${date}` : ''}`),

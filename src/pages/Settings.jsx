@@ -19,6 +19,7 @@ export default function Settings() {
         pet_price_per_kg: Number(s.pet_price_per_kg) || 0,
         cover_price_per_kg: Number(s.cover_price_per_kg) || 0,
         bale_price: Number(s.bale_price) || 0,
+        washing_pay_per_worker: Number(s.washing_pay_per_worker) || 0,
       });
       setS(saved);
       notify('Pricing updated');
@@ -37,15 +38,19 @@ export default function Settings() {
           <label className="field"><span>Covers — price per kg</span>
             <input type="number" min="0" step="0.01" value={s.cover_price_per_kg} onChange={set('cover_price_per_kg')} /></label>
         </div>
-        <label className="field" style={{ maxWidth: 260 }}><span>Bale — price each</span>
-          <input type="number" min="0" step="0.01" value={s.bale_price} onChange={set('bale_price')} /></label>
+        <div className="row">
+          <label className="field"><span>Bale — price each</span>
+            <input type="number" min="0" step="0.01" value={s.bale_price} onChange={set('bale_price')} /></label>
+          <label className="field"><span>Washing — pay per worker per day</span>
+            <input type="number" min="0" step="0.01" value={s.washing_pay_per_worker} onChange={set('washing_pay_per_worker')} /></label>
+        </div>
 
         <div className="card" style={{ background: 'var(--cream)', borderStyle: 'dashed', marginTop: 6, marginBottom: 18 }}>
           <strong>How pricing works.</strong>
           <p className="muted" style={{ margin: '6px 0 0', fontSize: 13.5, lineHeight: 1.5 }}>
             These rates are copied onto each record at the moment it is saved. Changing them
             here affects <em>future</em> entries only — every payout already recorded stays exactly
-            as it was. Current rates: PET {naira(s.pet_price_per_kg)}/kg · Covers {naira(s.cover_price_per_kg)}/kg · Bale {naira(s.bale_price)}.
+            as it was. Current rates: PET {naira(s.pet_price_per_kg)}/kg · Covers {naira(s.cover_price_per_kg)}/kg · Bale {naira(s.bale_price)} · Washing {naira(s.washing_pay_per_worker)} per worker.
           </p>
         </div>
 
