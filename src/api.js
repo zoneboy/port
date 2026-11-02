@@ -54,7 +54,7 @@ export const api = {
   updateWashing: (id, w) => req(`/washing?id=${id}`, { method: 'PUT', body: w }),
   deleteWashing: (id) => req(`/washing?id=${id}`, { method: 'DELETE' }),
   // dashboard
-  dashboard: () => req('/dashboard'),
+  dashboard: (date) => req(`/dashboard${date ? `?date=${date}` : ''}`),
   completeness: (date) => req(`/completeness${date ? `?date=${date}` : ''}`),
   // export -> returns a Response for blob download
   exportBlob: (q) => {
